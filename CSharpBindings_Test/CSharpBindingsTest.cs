@@ -1,13 +1,36 @@
 using System.Reflection;
-using NUnit.Framework.Interfaces;
+using System.Runtime.CompilerServices;
+using Godot;
+using GodotSteam;
+using Moq;
 
 namespace CSharpBindings_Test
 {
     public class CSharpBindingsTest
     {
+
+        [Test]
+        public void TestCompareMethodsInDLL()
+        {
+            Assembly assembly = Assembly.GetExecutingAssembly();
+            Assert.NotNull(assembly);
+
+            foreach(var file in assembly.GetFiles())
+            {
+                Console.WriteLine("File name: " + file.Name);
+            }
+        }
+
         [Test]
         public void TestAllStaticMethods()
         {
+            // Check methods available in DLL
+            // Compare with count of methods here (or method name check?)
+            // Call all available methods from C# to check there are no runtime errors
+
+            // Mock<GodotObject> steam = new(typeof(Steam));
+            // Steam.Instance = steam.Object;
+            
             Assembly assembly = typeof(GodotSteam.Steam).Assembly;
 
             Type[] types = GetTypesInNamespace(assembly, "GodotSteam");
@@ -24,9 +47,18 @@ namespace CSharpBindings_Test
                     Console.WriteLine(type.Name + " with " + methodInfos.Length + " method(s).");
                     foreach (var methodInfo in methodInfos)
                     {
-                        Console.WriteLine("Calling - " + type.Name + "." + methodInfo.Name);
-                        object? result = InvokeMethod(null, methodInfo);
-                        Assert.AreEqual(result.GetType(), methodInfo.ReturnType);
+                        // Attribute? compilerGenerated = methodInfo.GetCustomAttribute(typeof(CompilerGeneratedAttribute));
+                        // Attribute? extensionAttribute = methodInfo.GetCustomAttribute(typeof(ExtensionAttribute));
+                        if (methodInfo.IsAbstract  || methodInfo.IsSpecialName /*|| compilerGenerated != null || extensionAttribute != null*/)
+                        {
+                            Console.WriteLine("Skipping abstract/compiler generated/extension method - " + type.Name + "." + methodInfo.Name);
+                        }
+                        else
+                        {
+                            Console.WriteLine("Calling - " + type.Name + "." + methodInfo.Name);
+                            object? result = InvokeMethod(null, methodInfo);
+                            Assert.AreEqual(result.GetType(), methodInfo.ReturnType);
+                        }
                     }
                 }
             }
@@ -60,9 +92,19 @@ namespace CSharpBindings_Test
                         .OrderBy(e => Guid.NewGuid()) // Do some random order by
                         .FirstOrDefault();
                 }
+                else if (parameter.ParameterType.IsValueType || parameter.ParameterType.IsPrimitive)
+                {
+                    constructed = Activator.CreateInstance(parameter.ParameterType);
+                }
+                else if (parameter.ParameterType == typeof(string)) // Special case for string since its a reference type
+                {
+                    constructed = "";
+                }
                 else
                 {
-                    constructed = parameter.GetType().GetConstructor(BindingFlags.Instance, Array.Empty<Type>()).Invoke(null);
+                    Type type = parameter.GetType();
+                    ConstructorInfo? constructorInfo = type.GetConstructor(BindingFlags.Instance, Array.Empty<Type>());
+                    constructed = constructorInfo?.Invoke(null);
                 }
                 if (constructed != null)
                 {
@@ -74,7 +116,7 @@ namespace CSharpBindings_Test
 
         private static BindingFlags GetBindingStaticMethods()
         {
-            return BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic;
+            return BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
         }
 
         private static BindingFlags GetBindingInstanceMethods()
